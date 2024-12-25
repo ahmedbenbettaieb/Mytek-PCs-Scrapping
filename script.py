@@ -3,11 +3,47 @@ from bs4 import BeautifulSoup
 from queries import INSERT_QUERY, CREATE_TABLE_QUERY
 from dbConnection import get_db_connection
 
+import requests
+from bs4 import BeautifulSoup
+
+def get_highest_page_number(url):
+    response = requests.get(url)
+    soup = BeautifulSoup(response.content, 'html.parser')
+    page_links = soup.select('a.page') 
+    
+    page_numbers = []
+    for link in page_links:
+        href = link.get('href', '')
+        if 'p=' in href:
+            page_number = int(href.split('p=')[-1])
+            page_numbers.append(page_number)
+    
+    if page_numbers:
+        return max(page_numbers)
+    else:
+        return 1  
+
+url = 'https://www.mytek.tn/informatique/ordinateurs-portables/pc-portable.html'
+highest_page = get_highest_page_number(url)
+
+
 def extract_product_data(url):
     response = requests.get(url)
     soup = BeautifulSoup(response.content, 'html.parser')
     products = soup.select('#maincontent .products .product-item-info')
     return products
+def extract_raw_price(product):
+    price_element = product.select_one('[data-price-type="finalPrice"]')
+    if price_element:
+        price_amount = price_element.get('data-price-amount')
+        if price_amount:
+            return float(price_amount)
+    return None
+
+
+
+
+
 
 def transform_product_data(product):
     try:
@@ -15,8 +51,8 @@ def transform_product_data(product):
         sku = product.select_one('.skuDesktop').text.strip()
         description = product.select_one('.product-item-description p').text.strip()
         
-        price = float(product.select_one('.price').text.strip().replace('DT', '').replace(',', '.').replace('\xa0', '').strip())
-        
+        price =extract_raw_price(product)
+
         availability = product.select_one('.stock')
         if availability and 'Epuisé' in availability.text:
             availability_status = 'Out of Stock'
@@ -52,6 +88,8 @@ def load_product_data_to_db(products_data):
     cursor.close()
     conn.close()
 
+    
+
 def run_etl_process(url):
     print("Extracting product data...")
     products = extract_product_data(url)
@@ -66,4 +104,12 @@ def run_etl_process(url):
 
 if __name__ == "__main__":
     url = 'https://www.mytek.tn/informatique/ordinateurs-portables/pc-portable.html'
-    run_etl_process(url)
+    highest_page = get_highest_page_number(url) 
+
+    for i in range(1, highest_page + 1):
+        if i == 1:
+            run_etl_process(url)
+        else:
+            run_etl_process(url + '?p=' + str(i))
+
+    print("ETL process completed successfully!")
